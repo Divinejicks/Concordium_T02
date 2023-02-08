@@ -112,6 +112,23 @@ fn close<S: HasStateApi>(
     Ok(host.invoke_transfer(&owner, balance)?)
 }
 
+// Closing the donation
+#[receive(contract = "donation", name = "open", mutable)]
+fn open<S: HasStateApi>(
+    ctx: &impl HasReceiveContext,
+    host: &mut impl HasHost<State, StateApiType = S>,
+) -> ReceiveResult<()> {
+
+    let owner = ctx.owner();
+    let sender = ctx.sender();
+
+    ensure!(sender.matches_account(&owner));
+    ensure!(host.state().state_of_donation == StateOfDonation::Closed);
+
+    host.state_mut().state_of_donation = StateOfDonation::Open;
+    Ok(())
+}
+
 #[derive(Serialize, SchemaType)]
 struct DonationView {
     number_donors: u32,
@@ -240,5 +257,43 @@ mod tests {
             [(owner, balance)],
             "wrong transfers."
         );
+    }
+
+    #[test]
+    fn test_open() {
+        // arrange
+        let mut ctx = TestReceiveContext::empty();
+        let owner = AccountAddress([0u8; 32]);
+        ctx.set_owner(owner);
+        let sender = Address::Account(owner);
+        ctx.set_sender(sender);
+        let balance = Amount::from_micro_ccd(100);
+
+        let state = State {
+            number_of_donors: 0,
+            state_of_donation: StateOfDonation::Open,
+            donation_locations: vec!["GE".to_string(), "CM".to_string(), "IT".to_string(), "FR".to_string()],
+            end_time: Timestamp::from_timestamp_millis(10000),
+        };
+        
+
+        let mut host = TestHost::new(state, TestStateBuilder::new());
+        host.set_self_balance(balance);
+        // act
+        let result = close(&ctx, &mut host);
+
+        // assert
+        assert!(result.is_ok(), "Failed to close donation.");
+        assert_eq!(host.state().state_of_donation, StateOfDonation::Closed, "State of donation should be closed.");
+        assert_eq!(
+            host.get_transfers(),
+            [(owner, balance)],
+            "wrong transfers."
+        );
+
+        // open
+        let openResult = open(&ctx, &mut host);
+        assert!(result.is_ok(), "Failed to open donation.");
+        assert_eq!(host.state().state_of_donation, StateOfDonation::Open, "State of donation should be open.");
     }
 }
